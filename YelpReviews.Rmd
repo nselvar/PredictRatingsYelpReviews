@@ -1,0 +1,212 @@
+---
+title: "Naive Bayes to predict ratings based on Yelp restaurant reviews"
+author: "Nisha Selvarajan"
+date: "3 October 2020"
+output:
+  html_document:
+      theme: journal
+      toc: yes
+      toc_depth: 4
+      #toc_float: true
+  pdf_document:
+      toc: yes
+      toc_depth: 4
+      latex_engine: xelatex
+      #toc_float: true
+  word_document:
+      toc: yes
+      toc_depth: 4
+      #toc_float: true
+---
+
+### Objectives: 
+
+***Does the Rating and Review match in Yelp?***
+On famous websites like Amazon and Yelp, many products and businesses receive tens or hundreds of reviews,
+making it impossible for readers to read all of them.Generally, readers prefer to look at the star ratings
+only and ignore the text. However, the relationship between the text and the rating is not obvious. In particular, several questions may be asked: why exactly did this reviewer give the restaurant 3/5 stars? In addition to the quality of food, variety, size and service time, what other features of the restaurant did the user implicitly consider, and what was the relative importance given to each of them? How does this relationship change if we consider a different user’s rating and text review? The process of predicting this relationship for a generic user is called Review Rating Prediction
+
+The main challenge which we will solve is building a good predictor which effectivelys extract useful features of the product from the text reviews and  then quantify their relative importance with respect to the rating.
+
+###  Data Description
+  + 33K Rows, with 17 columns. You can download data on the link https://www.kaggle.com/shikhar42/yelps-dataset
+  
+```{r, message = FALSE}
+library(knitr)
+library(kableExtra)
+knitr::opts_chunk$set(message = FALSE)
+knitr::opts_chunk$set(warning = FALSE)
+
+
+df <- data.frame(Names = c("business_id","name","address",
+                           "postal_code","latitude","longitude",
+                           "stars","review_count","is_open",
+                           "review_id","user_id"),
+                  Description = c("ID related to each business","Name of the business", 
+                  "Street Adress of the business", "zip code of the business",
+                  "Latitude of the business", "Longitude of the business" ,
+                  "Rating given by user to the business", "Total number of
+                  reviews a user had posted at the time of data collection",
+                  "Restaraunt open or closed","Unique Review Id","User Id of the reviewer"
+                ))
+kbl(df) %>%
+  kable_paper(full_width = F) %>%
+  column_spec(2, width = "30em")
+```
+
+###  Using Naive Bayes to validate the review and ratings
+
++ ***Step 1: import dataset***
+
+```{r}
+library(class)
+library(knitr)
+library(kableExtra)
+library(caret)
+library(tidyverse)
+library(tokenizers)
+library(tidytext)
+library(wordcloud)
+library(tm)
+library(dplyr)
+library(caret)
+library(naivebayes)
+library(wordcloud)
+yelpdataset=read.csv(file = "/Users/nselvarajan/Desktop/test/archive/cleaned.csv", sep = ",")
+yelpdataset <- data.frame(yelpdataset, stringsAsFactors = FALSE)
+head(yelpdataset)
+```
+
++ ***Step 2: Clean the Data***
+  + Create a outcome variable which is a true or false indicator specifying if the sentiment 
+    corresponding to the review is positive or not.
+
+```{r}
+yelpdataset$positive = as.factor(yelpdataset$stars > 3)
+```
+
++ ***Step 3: Features and Preprocessing***
+  + Load the data into a Corpus (a collection of documents) which is the main data structure
+  used by tm.
+  + Review texts were cleaned by tm package which provides several function to clean the text 
+  via the tm_map() function.
+  + Cleaning proces include removing format, punctuation and extra whitespace.All characters 
+  from the dataset are lowercase, so there is no need to preprocess uppercase letters. Word
+  stemming was achieved using Porter stemming algorithm, which erased word suffixes to 
+  retrieve the root or stem. Stopwords, that is, words with no information value but
+  appear too common in a language, were also removed according to a list from nltk.corpus.
+  
+  ```{r}
+myCorpus <- Corpus(VectorSource(yelpdataset$text))
+corpus <- tm_map(myCorpus,removeNumbers)
+corpus <- tm_map(corpus, removePunctuation)
+corpus <- tm_map(corpus, tolower)
+corpus <- tm_map(corpus, stemDocument, language = 'english')
+corpus <- tm_map(corpus, removeWords, stopwords('english'))
+corpus <- tm_map(corpus, stripWhitespace)
+
+```
++ ***Step 4: Making a document-term matrix***
+  + The document-term matrix is used when you want to have each document represented as a row. 
+  + Bag of words is a way to count terms, n-grams, across a collection of documents.
+  + Create dataframe from cleaned corpus 
+  ```{r}
+     bag_of_words <- DocumentTermMatrix(corpus)                                 
+     inspect(bag_of_words)
+     dataframe<-data.frame(text=unlist(sapply(corpus, `[`)), stringsAsFactors=F) 
+     yelpdataset$text <- dataframe$text
+  ```
++ ***Step 5: Build Word Cloud***
+
+  + Word cloud is a fun way to visualize popular words/phrases in group of text. 
+  + This function takes a single parameter of review text and builds word clouds for words occuring
+    with the highest frequencies in reviews for these restaurants
+  ```{r}
+     y<-head(yelpdataset,100)
+     library(wordcloud)
+     wordcloud(y$text)
+  ```
+
++ ***Step 6: Build Word Cloud For 5 Star Reviews***
+
+  + Build word cloud for 5 star ratings.
+  
+  ```{r}
+rating5 <- subset(yelpdataset, stars == "5")  ##Filtering data for 5 star reviews
+myCorpusRating5 <- Corpus(VectorSource(rating5$text))
+myCorpusRating5 <- tm_map(myCorpusRating5,removeNumbers)
+myCorpusRating5 <- tm_map(myCorpusRating5, removePunctuation)
+myCorpusRating5 <- tm_map(myCorpusRating5, tolower)
+myCorpusRating5 <- tm_map(myCorpusRating5, stemDocument, language = 'english')
+myCorpusRating5 <- tm_map(myCorpusRating5, removeWords, stopwords('english'))
+myCorpusRating5 <- tm_map(myCorpusRating5, stripWhitespace)
+bag_of_words_rating_5 <- DocumentTermMatrix(myCorpusRating5)    
+##creating DTM to get frequencies
+inspect(bag_of_words_rating_5)
+dataframeRating5<-data.frame(text=unlist(sapply(myCorpusRating5,
+`[`)), stringsAsFactors=F) ##creating data fram from matrix 
+yFiveStar<-head(dataframeRating5,100)
+# word cloud visualization
+wordcloud(yFiveStar$text)
+  ```
+
++ ***Step 7: Model Training and Testing***
+
+  + I used  25% to test data and 75% to data train.
+  + After obtaining training and testing data sets, then we will create a separate 
+    data frame which has values to be compared with actual final values 
+
+```{r}
+dataset_train <- yelpdataset[1:24000,]  ###dividing data into training and test set
+dataset_test <- yelpdataset[24000:331400,]
+ ##creating corpus for training
+myCorpus_model_train <- Corpus(VectorSource(dataset_train$text))
+ ##since this data was already cleaned before, we can straigtaway move to DTM
+dtm_train <- DocumentTermMatrix(myCorpus_model_train)
+dtm_train <- removeSparseTerms(dtm_train,0.95)
+##creating corpus for test
+myCorpus_model_test <- Corpus(VectorSource(dataset_test$text)) 
+ ##since this data was already cleaned before, we can straigtaway move to DTM
+dtm_test <- DocumentTermMatrix(myCorpus_model_test)
+dtm_test <- removeSparseTerms(dtm_test,0.95)
+
+```
+
++ ***Step 8: Making predictions***
+ +  We build Naive Bayes by using training & test data sets. 
+ +  We apply Laplace smoothing , which is a technique for smoothing categorical data.
+ +  A small-sample correction, or pseudo-count, will be incorporated in every probability
+    estimate. Consequently, no probability will be zero. this is a way of regularizing Naive Bayes, 
+    and when the pseudo-count is zero, it is called Laplace smoothing. 
+```{r}
+model <- naive_bayes(as.data.frame(as.matrix(dtm_train)), dataset_train$positive, laplace = 1)
+model
+```
+### Interpretation of the results and prediction accuracy achieved
+ + ***Evaluate the model performance using confusionMatrix***
+ + The accuracy of our model on the testing set is 72%.
+ + We can visualise the model’s performance using a confusion matrix.
+ + We can evaluvate the accuracy, precision and recall on the training and validation sets 
+ to evaluate the performance of naive bayes algorithm.
+
+```{r}
+model_predict <- predict(model, as.data.frame(as.matrix(dtm_test)))
+confusionMatrix(model_predict, dataset_test$positive)
+```
+ + ***Evaluate the model performance using CrossTable ***
+
+```{r}
+library(gmodels)
+CrossTable(model_predict, dataset_test$positive,
+           prop.chisq = FALSE, prop.t = FALSE, prop.r = FALSE,
+           dnn = c('predicted', 'actual'))
+```
+
+### Overall insights obtained from the implemented project 
+
+ + Overall accuracy of the model is 72%.It is safe to assume that naive bayes models can be trained on to find the rating of the restaurant based on the reviews.
+ + Sensitivity for finding ratings is 0.4760. 
+ + Specificity for finding ratings is 0.8465.
+ + Since the dataset was clean, and reviews are equally distributed between test & training set, adding laplace
+   smoothing factor did not make much difference in the accuracy.  
+
